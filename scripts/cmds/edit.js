@@ -1,120 +1,82 @@
-const axios = require('axios');
-const fs = require('fs-extra'); 
-const path = require('path');
+const axios = require("axios");
+const fs = require("fs-extra");
+const path = require("path");
 
-const API_ENDPOINT = "https://tawsif.is-a.dev/gemini/nano-banana"; 
+const apiUrl = "https://raw.githubusercontent.com/Saim-x69x/sakura/main/ApiUrl.json";
 
-function extractImageUrl(message, args, event) {
-    let imageUrl = args.find(arg => arg.startsWith('http'));
-
-    if (!imageUrl && event.messageReply && event.messageReply.attachments && event.messageReply.attachments.length > 0) {
-        const imageAttachment = event.messageReply.attachments.find(att => att.type === 'photo' || att.type === 'image');
-        if (imageAttachment && imageAttachment.url) {
-            imageUrl = imageAttachment.url;
-        }
-    }
-    return imageUrl;
+async function getApiUrl() {
+  const res = await axios.get(apiUrl);
+  return res.data.apiv3;
 }
 
-function extractEditPrompt(rawArgs, imageUrl) {
-    let prompt = rawArgs.join(" ");
-    
-    if (imageUrl) {
-        prompt = prompt.replace(imageUrl, '').trim();
-    }
-    
-    if (prompt.includes('|')) {
-        prompt = prompt.split('|')[0].trim();
-    }
-
-    return prompt || "enhance quality";
+async function urlToBase64(url) {
+  const res = await axios.get(url, { responseType: "arraybuffer" });
+  return Buffer.from(res.data).toString("base64");
 }
-
 
 module.exports = {
   config: {
-    name: "edit",
-    aliases: ["imgedit", "nanoedit"],
-    version: "2.3",
-    author: "NeoKEX",
-    countDown: 15,
+    name: "edit", 
+    aliases: ["editimg","imgedit"],
+    version: "1.0",
+    author: "Hasib",
+    countDown: 5,
     role: 0,
-    longDescription: "Edit or modify an existing image using a text prompt.",
-    category: "ai-image",
-    guide: {
-      en: "{pn} [modification prompt] OR reply to an image with [modification prompt]"
-    }
+    shortDescription: "Edit an image using text prompt",
+    longDescription: "Only edits an existing image. Must reply to an image.",
+    category: "ai",
+    guide: "{p}edit <prompt> (reply to an image)"
   },
 
-  onStart: async function({ message, args, event }) {
-    
-    const imageUrl = extractImageUrl(message, args, event);
-    const editPrompt = extractEditPrompt(args, imageUrl);
+  onStart: async function ({ api, event, args, message }) {
+    const repliedImage = event.messageReply?.attachments?.[0];
+    const prompt = args.join(" ").trim();
 
-    if (!imageUrl) {
-      return message.reply("❌ Please provide an image URL or reply to an image to edit.");
-    }
-    if (!editPrompt) {
-        return message.reply("❌ Please provide a prompt describing the modification you want to make.");
+    if (!repliedImage || repliedImage.type !== "photo") {
+      return message.reply(
+        "❌ Please reply to an image to edit it.\n\nExample:\n/edit make it anime style"
+      );
     }
 
-    message.reaction("⏳", event.messageID);
-    let tempFilePath; 
+    if (!prompt) {
+      return message.reply("❌ Please provide an edit prompt.");
+    }
+
+    const processingMsg = await message.reply("🖌️ Editing image...");
+
+    const imgPath = path.join(__dirname, "cache", `${Date.now()}_edit.jpg`);
 
     try {
-      const fullApiUrl = `${API_ENDPOINT}?prompt=${encodeURIComponent(editPrompt)}&url=${encodeURIComponent(imageUrl)}`;
-      
-      const apiResponse = await axios.get(fullApiUrl);
-      const data = apiResponse.data;
+      const API_URL = await getApiUrl();
 
-      if (!data.success || !data.imageUrl) {
-        throw new Error(data.error || "API returned success: false or missing image URL.");
-      }
+      const payload = {
+        prompt: `Edit the given image based on this description:\n${prompt}`,
+        images: [await urlToBase64(repliedImage.url)],
+        format: "jpg"
+      };
 
-      const finalImageUrl = data.imageUrl;
-
-      const imageDownloadResponse = await axios.get(finalImageUrl, {
-          responseType: 'stream',
-      });
-      
-      const cacheDir = path.join(__dirname, 'cache');
-      if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-      
-      tempFilePath = path.join(cacheDir, `edited_nano_${Date.now()}.png`);
-      
-      const writer = fs.createWriteStream(tempFilePath);
-      imageDownloadResponse.data.pipe(writer);
-
-      await new Promise((resolve, reject) => {
-        writer.on("finish", resolve);
-        writer.on("error", (err) => {
-          writer.close();
-          reject(err);
-        });
+      const res = await axios.post(API_URL, payload, {
+        responseType: "arraybuffer",
+        timeout: 180000
       });
 
-      message.reaction("✅", event.messageID);
+      await fs.ensureDir(path.dirname(imgPath));
+      await fs.writeFile(imgPath, Buffer.from(res.data));
+
+      await api.unsendMessage(processingMsg.messageID);
+
       await message.reply({
-        attachment: fs.createReadStream(tempFilePath)
+        body: `✅ Image edited successfully\nPrompt: ${prompt}`,
+        attachment: fs.createReadStream(imgPath)
       });
 
     } catch (error) {
-      message.reaction("❌", event.messageID);
-      
-      let errorMessage = "An error occurred during image editing.";
-      if (error.response && error.response.data && error.response.data.error) {
-         errorMessage += ` (API Error: ${error.response.data.error})`;
-      } else if (error.message) {
-         errorMessage = `❌ ${error.message}`;
-      } else if (error.code) {
-         errorMessage = `❌ Network Error: ${error.code}`;
-      }
-
-      console.error("Edit Command Error:", error);
-      message.reply(`❌ ${errorMessage}`);
+      console.error("EDIT Error:", error?.response?.data || error.message);
+      await api.unsendMessage(processingMsg.messageID);
+      message.reply("❌ Failed to edit image. Try again later.");
     } finally {
-      if (tempFilePath && fs.existsSync(tempFilePath)) {
-          fs.unlinkSync(tempFilePath);
+      if (fs.existsSync(imgPath)) {
+        await fs.remove(imgPath);
       }
     }
   }
