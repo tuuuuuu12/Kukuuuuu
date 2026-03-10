@@ -16,14 +16,13 @@ async function urlToBase64(url) {
 
 module.exports = {
   config: {
-    name: "edit", 
-    aliases: ["editimg","imgedit"],
+    name: "edit",
     version: "1.0",
-    author: "Hasib",
+    author: "Siyuuu",
     countDown: 5,
     role: 0,
-    shortDescription: "Edit an image using text prompt",
-    longDescription: "Only edits an existing image. Must reply to an image.",
+    shortDescription: "Edit image ",
+    longDescription: "edit all image to text/prompt.",
     category: "ai",
     guide: "{p}edit <prompt> (reply to an image)"
   },
@@ -34,17 +33,21 @@ module.exports = {
 
     if (!repliedImage || repliedImage.type !== "photo") {
       return message.reply(
-        "❌ Please reply to an image to edit it.\n\nExample:\n/edit make it anime style"
+        "❌ Please reply to image"
       );
     }
 
     if (!prompt) {
-      return message.reply("❌ Please provide an edit prompt.");
+      return message.reply("❌ prompt?.");
     }
 
-    const processingMsg = await message.reply("🖌️ Editing image...");
+    const processingMsg = await message.reply("wait editing image....");
 
-    const imgPath = path.join(__dirname, "cache", `${Date.now()}_edit.jpg`);
+    const imgPath = path.join(
+      __dirname,
+      "cache",
+      `${Date.now()}_edit.jpg`
+    );
 
     try {
       const API_URL = await getApiUrl();
@@ -66,14 +69,14 @@ module.exports = {
       await api.unsendMessage(processingMsg.messageID);
 
       await message.reply({
-        body: `✅ Image edited successfully\nPrompt: ${prompt}`,
+        body: `✅ successfully\nPrompt: ${prompt}`,
         attachment: fs.createReadStream(imgPath)
       });
 
     } catch (error) {
       console.error("EDIT Error:", error?.response?.data || error.message);
       await api.unsendMessage(processingMsg.messageID);
-      message.reply("❌ Failed to edit image. Try again later.");
+      message.reply("❌ Failed , please again try ");
     } finally {
       if (fs.existsSync(imgPath)) {
         await fs.remove(imgPath);
